@@ -12,7 +12,17 @@ defmodule BoosterWeb.PageLive do
       |> Enum.filter(fn t -> String.starts_with?(t, "discovery_lightyear_defaults") end)
       |> Enum.map(fn <<"discovery_lightyear_defaults_">> <> brand -> brand end)
 
-    {:ok, assign(socket, tables: tables, brand: "", show_add_form: false)}
+    countries = Req.get!("https://restcountries.eu/rest/v2/all").body
+
+    {:ok,
+     assign(socket,
+       tables: tables,
+       brand: "",
+       show_add_form: false,
+       countries: countries,
+       token_apiToken: nil,
+       token_firmwareToken: nil
+     )}
   end
 
   def handle_event("toggleRegion", %{"region" => region, "environment" => env}, socket) do
@@ -52,6 +62,20 @@ defmodule BoosterWeb.PageLive do
 
   def handle_event("cancelAdd", _, socket) do
     {:noreply, assign(socket, show_add_form: false, add_for: "")}
+  end
+
+  def handle_event("addNew", form, socket) do
+    IO.inspect("Add new application for #{socket.assigns.brand}")
+    IO.inspect(form)
+    {:noreply, socket}
+  end
+
+  def handle_event("generateToken", %{"for" => field}, socket) do
+    {:noreply, assign(socket, "token_#{field}": "1234abcd")}
+  end
+
+  def handle_event("addChange", _, socket) do
+    {:noreply, socket}
   end
 
   def render(assigns) do
@@ -98,15 +122,63 @@ defmodule BoosterWeb.PageLive do
         </div>
 
         <%= if @show_add_form do %>
-          <form>
+          <div style="background-color: white">
+          <form name="qa_form" phx-submit="addNew" phx-change="addChange">
+            <label for="name"> Name <input name="name" /> </label>
+            <label for="apiToken"> API Token <input name="apiToken" value={@token_apiToken} /> <a phx-click="generateToken" phx-value-for="apiToken"> Generate </a> </label>
+            <label for="firmwareToken"> Firmware Token <input name="firmwareToken" value={@token_firmwareToken} /> <a phx-click="generateToken" phx-value-for="firmwareToken"> Generate </a> </label>
             
+              <.show_countries countries={@countries} />
+            <button type="submit"> Create </button>
+            <button phx-click="cancelAdd"> Cancel </button>
           </form>
-          <button phx-click="cancelAdd"> Cancel </button>
+        </div>
         <% end %>
 
       <% end %>
     </div>
     """
+  end
+
+  def show_countries(assigns) do
+    ~H"""
+      <div class="row">
+        <div class="column">
+          <h4> Americas </h4> 
+            <%= for country <- get_countries("americas", @countries) do %>
+              <div>
+                <input type="checkbox" value={"americas-" <> Map.get(country, "alpha2Code")} name="countryCode[]" /> <%= Map.get(country, "name") %>
+                <input type="text" placeholder="Marketing Program" name={"marketingProgram[americas][" <> Map.get(country, "alpha2Code")<> "]"}/>
+              </div>
+            <% end %>
+        </div>
+        <div class="column">
+          <h4> Europe </h4> 
+            <%= for country <- get_countries("europe", @countries) do %>
+              <div>
+                <input type="checkbox" value={"europe-" <> Map.get(country, "alpha2Code")} name="countryCode[]"/> <%= Map.get(country, "name") %>
+                <input type="text" placeholder="Marketing Program" name={"marketingProgram[europe][" <> Map.get(country, "alpha2Code")<>"]"} />
+              </div>
+            <% end %>
+
+        </div>
+        <div class="column">
+          <h4> Asia </h4>
+            <%= for country <- get_countries("asia", @countries) do %>
+              <div>
+                <input type="checkbox" value={"asia-" <> Map.get(country, "alpha2Code")} name="countryCode[]"/> <%= Map.get(country, "name") %>
+                <input type="text" placeholder="Marketing Program" />
+              </div>
+            <% end %>
+
+        </div>
+      </div>
+    """
+  end
+
+  def get_countries(region, all) do
+    all
+    |> Enum.filter(fn a -> String.downcase(Map.get(a, "region")) == String.downcase(region) end)
   end
 
   defp get_regions(%{"Items" => items}) do
@@ -126,7 +198,15 @@ defmodule BoosterWeb.PageLive do
 
   defp decode_item(item) do
     Enum.map(item, fn {k, v} ->
-      value = Enum.map(v, fn {k2, v2} -> v2 end)
+      value =
+        Enum.map(v, fn {k2, v2} ->
+          if k2 == "L" do
+            Enum.map(v2, fn %{"S" => v3} -> v3 end)
+          else
+            v2
+          end
+        end)
+
       {k, List.first(value)}
     end)
   end
